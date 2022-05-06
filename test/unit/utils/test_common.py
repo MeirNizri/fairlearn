@@ -2,10 +2,9 @@
 # Licensed under the MIT License.
 
 import numpy as np
-import pytest
 from numpy.testing import assert_array_almost_equal
+import pytest
 from sklearn.base import BaseEstimator, ClassifierMixin
-
 from fairlearn.utils._common import _get_soft_predictions
 
 
