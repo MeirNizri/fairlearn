@@ -15,14 +15,7 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
     https://proceedings.neurips.cc/paper/2021/file/07563a3fe3bbe7e3ba84431ad9d055af-Paper.pdf
 
     An Estimator to train a model using fair and robust sample selection. In each iteration in which the model learns,
-    data is sampled with the aim of optimizing the fairness and robustness of the model. This method combines two
-    sample selection methods:
-    1. Batch selection - In each iteration we adjust the number of samples from each class and a sensitive feature
-       improve the fairness. For example, if the model, on objects with a sensitive attribute z is less accurate for
-       class y, then in the next iteration we would like to sample more objects from attribute z that belong to
-       class y so that the model can be more accurate for this group.
-    2. Clean selection - selection of objects for which the loss function is low. This choice helps to achieve
-       robustness since usually objects with high loss are considered noisy.
+    data is sampled with the aim of optimizing the fairness and robustness of the model.
     This method does not require modification on the data and can work in any neural network architecture.
     """
 

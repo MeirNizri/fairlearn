@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import pandas as pd
+import pytest
 
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
@@ -63,3 +64,12 @@ def test_true_positive_rate_parity():
 
 def test_false_positive_rate_parity():
     run_comparisons(FalsePositiveRateParity, false_positive_rate)
+
+def test_arguments_validation():
+    for wrong_values in [0, -2, 1.5]:
+        with pytest.raises(ValueError):
+            FairRobustSelection(
+                LogisticRegression(),
+                constraints=DemographicParity,
+                tau=wrong_values)
+
