@@ -1,13 +1,6 @@
 import logging
-import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, MetaEstimatorMixin
-from sklearn.utils import check_random_state
-from sklearn.utils.validation import check_is_fitted
-from fairlearn.reductions._moments import ClassificationMoment
-
-logger = logging.getLogger(__name__)
-
 
 class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
     """
@@ -16,7 +9,6 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
 
     An Estimator to train a model using fair and robust sample selection. In each iteration in which the model learns,
     data is sampled with the aim of optimizing the fairness and robustness of the model.
-    This method does not require modification on the data and can work in any neural network architecture.
     """
 
     def __init__(self, estimator, constraints, tau, *,
@@ -35,12 +27,21 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
         constraints : fairlearn.reductions.Moment
             The fairness constraints expressed as a :class:`~Moment`.
         tau: float
-            number in range [0,1] indicating the clean ratio of the data.
+            number in range (0,1] indicating the clean ratio of the data.
         alpha : float
             A positive number for step size that used in the lambda adjustment.
         sample_weight_name : str
             Name of the argument to `estimator.fit()` which supplies the sample weights
             (defaults to `sample_weight`)
+
+
+        >>> FairRobustSelection(LogisticRegression(), DemographicParity(), tau=0.8) is None
+        True
+
+        >>> FairRobustSelection(LogisticRegression(),DemographicParity(), tau=0)
+        Traceback (most recent call last):
+            ...
+        ValueError: tau must be between (0,1]
         """
         pass
 
@@ -54,6 +55,9 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
             Feature data
         y : numpy.ndarray, pandas.DataFrame, pandas.Series, or list
             Label vector
+
+        >>> frs_model.fit(x_adult, y_adult, sensitive_features=adult.data['sex']) is None
+        True
         """
         pass
 
@@ -74,9 +78,21 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
         Scalar or vector
             The prediction. If `X` represents the data for a single example
             the result will be a scalar. Otherwise the result will be a vector
+
+        >>> frs_model.predict(x_adult).shape[0] is x_adult.shape[0]
+        True
         """
         pass
 
 if __name__ == "__main__":
     import doctest
+    from sklearn.linear_model import LogisticRegression
+    from fairlearn.datasets import fetch_adult
+    from fairlearn.reductions._moments import DemographicParity
+
+    adult = fetch_adult(cache=True, as_frame=True)
+    x_adult = pd.get_dummies(adult.data)
+    y_adult = (adult.target == '>50K') * 1
+    frs_model = FairRobustSelection(LogisticRegression(), DemographicParity(), tau=0.8)
+    frs_model.fit(x_adult, y_adult, sensitive_features=adult.data['sex'])
     print(doctest.testmod())

@@ -70,6 +70,6 @@ def test_arguments_validation():
         with pytest.raises(ValueError):
             FairRobustSelection(
                 LogisticRegression(),
-                constraints=DemographicParity,
+                DemographicParity(),
                 tau=wrong_values)
 
