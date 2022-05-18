@@ -1,10 +1,7 @@
-# Copyright (c) Microsoft Corporation and Fairlearn contributors.
-# Licensed under the MIT License.
-
 import pandas as pd
+import torch
 import pytest
 
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 
 from fairlearn.metrics import MetricFrame
@@ -12,7 +9,6 @@ from fairlearn.metrics import selection_rate, true_positive_rate, false_positive
 from fairlearn.reductions import FairRobustSelection
 from fairlearn.reductions import DemographicParity, ErrorRateParity,\
     TruePositiveRateParity, FalsePositiveRateParity
-
 from fairlearn.datasets import fetch_adult, fetch_bank_marketing
 
 # fetch stored datasets
@@ -27,25 +23,34 @@ y_marketing = (bank_marketing.target == 'yes') * 1
 # combine the datasets to list
 datasets = [(x_adult, y_adult), (x_marketing, y_marketing)]
 
+# create logistic regression model
+class LogisticRegression(torch.nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super(LogisticRegression, self).__init__()
+        self.linear = torch.nn.Linear(input_dim, output_dim)
+
+    def forward(self, x):
+        outputs = torch.sigmoid(self.linear(x))
+        return outputs
+
 def run_comparisons(moment, metric_fn):
     # check if metric_fn constraints is satisfied on two different datasets
     for x, y in datasets:
-        X_dummy = pd.get_dummies(x)
+        x_dummy = pd.get_dummies(x)
         # sensitive feature
         sex = x['sex']
 
-        unmitigated = LogisticRegression()
-        unmitigated.fit(X_dummy, y)
-        y_pred = unmitigated.predict(X_dummy)
+        unmitigated = LogisticRegression(x_dummy.shape[1], 1)
+        unmitigated.fit(x_dummy, y)
+        y_pred = unmitigated.predict(x_dummy)
         mf_unmitigated = MetricFrame(metrics=metric_fn, y_true=y,
                                      y_pred=y_pred, sensitive_features=sex)
 
         frs_model = FairRobustSelection(
-            LogisticRegression(),
-            constraints=moment(),
-            tau=1)
-        frs_model.fit(X_dummy, y, sensitive_features=sex)
-        y_pred = frs_model.predict(X_dummy)
+            LogisticRegression(x_dummy.shape[1], 1),
+            constraints=moment())
+        frs_model.fit(x_dummy, y, sex)
+        y_pred = frs_model.predict(x_dummy)
         mf_mitigated = MetricFrame(metrics=metric_fn, y_true=y,
                                    y_pred=y_pred, sensitive_features=sex)
 
@@ -69,7 +74,6 @@ def test_arguments_validation():
     for wrong_values in [0, -2, 1.5]:
         with pytest.raises(ValueError):
             FairRobustSelection(
-                LogisticRegression(),
+                LogisticRegression(10, 1),
                 DemographicParity(),
                 tau=wrong_values)
-

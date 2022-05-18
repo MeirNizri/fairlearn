@@ -1,5 +1,4 @@
 import numpy as np
-import random
 import itertools
 
 import torch
@@ -41,6 +40,8 @@ class FairBatchSampler:
         self.batch_size = batch_size
         self.warm_start = warm_start
         self.tau = tau
+        if self.tau > 1 or self.tau <= 0:
+            raise ValueError("tau must be between (0,1]")
         self.alpha = alpha
 
         self.data_len = len(self.y_data)
@@ -55,23 +56,36 @@ class FairBatchSampler:
         # Finds the index and len of each z and y value
         self.z_index = {}
         self.z_len = {}
+        self.clean_z_index = {}
+        self.clean_z_len = {}
         for z_value in self.z_values:
             self.z_index[z_value] = (self.z_data == z_value).nonzero()
             self.z_len[z_value] = len(self.z_index[z_value])
+            self.clean_z_index[z_value] = self.z_index[z_value].copy()
+            self.clean_z_len[z_value] = len(self.clean_z_index[z_value])
 
         self.y_index = {}
         self.y_len = {}
+        self.clean_y_index = {}
+        self.clean_y_len = {}
         for y_value in self.y_values:
             self.y_index[y_value] = (self.y_data == y_value).nonzero()
             self.y_len[y_value] = len(self.y_index[y_value])
+            self.clean_y_index[y_value] = self.y_index[y_value].copy()
+            self.clean_y_len[y_value] = len(self.clean_y_index[y_value])
 
         self.yz_index = {}
         self.yz_len = {}
+        self.clean_yz_index = {}
+        self.clean_yz_len = {}
         for yz_tuple in self.yz_tuples:
-            self.yz_index[yz_tuple] = (self.y_data == yz_tuple[0]) & (self.z_data == yz_tuple[1]).nonzero()
+            self.yz_index[yz_tuple] = ((self.y_data == yz_tuple[0]) & (self.z_data == yz_tuple[1])).nonzero()
             self.yz_len[yz_tuple] = len(self.yz_index[yz_tuple])
+            self.clean_yz_index[yz_tuple] = self.yz_index[yz_tuple].copy()
+            self.clean_yz_len[yz_tuple] = len(self.clean_yz_index[yz_tuple])
 
         self.entire_index = np.arange(self.data_len)
+        self.clean_index = self.entire_index.copy()
 
         # Default batch size for every (y,z) tuple
         self.S = {}
@@ -89,7 +103,7 @@ class FairBatchSampler:
 
         y_pred = self.model.predict(self.x_data)
 
-        if self.fairness_constraint == 'dp':
+        if self.fairness_constraint == "DemographicParity":
             ones = np.ones(len(self.y_data))
             dp_loss = self.loss_func(y_pred.squeeze(), ones)
 
@@ -125,12 +139,8 @@ class FairBatchSampler:
                 self.lb2 = 1
 
     def select_fair_robust_sample(self):
-        """Selects fair and robust samples and adjusts the lambda values for fairness.
-        See our paper for algorithm details.
-
-        Returns:
-            Indexes that indicate the data.
-
+        """
+        Selects fair and robust samples and adjusts the lambda values for fairness.
         """
 
         y_pred = self.model.predict(self.x_data)
@@ -185,8 +195,6 @@ class FairBatchSampler:
 
         clean_index = torch.LongTensor(clean_index).cuda()
 
-        self.batch_num = int(len(clean_index) / self.batch_size)
-
         # Update the variables
         self.clean_index = clean_index
 
@@ -222,133 +230,6 @@ class FairBatchSampler:
 
         return clean_index
 
-    def select_batch_replacement(self, batch_size, full_index, batch_num, replacement=False, weight=None):
-        """Selects a certain number of batches based on the given batch size.
-
-        Args:
-            batch_size: An integer for the data size in a batch.
-            full_index: An array containing the candidate data indices.
-            batch_num: An integer indicating the number of batches.
-            replacement: A boolean indicating whether a batch consists of data with or without replacement.
-
-        Returns:
-            Indexes that indicate the data.
-
-        """
-
-        select_index = []
-
-        if replacement == True:
-            for _ in range(batch_num):
-                if weight == None:
-                    weight_norm = weight / torch.sum(weight)
-                    select_index.append(np.random.choice(full_index, batch_size, replace=False, p=weight_norm))
-                else:
-                    select_index.append(np.random.choice(full_index, batch_size, replace=False))
-        else:
-            tmp_index = full_index.detach().cpu().numpy().copy()
-            random.shuffle(tmp_index)
-
-            start_idx = 0
-            for i in range(batch_num):
-                if start_idx + batch_size > len(full_index):
-                    select_index.append(np.concatenate(
-                        (tmp_index[start_idx:], tmp_index[: batch_size - (len(full_index) - start_idx)])))
-
-                    start_idx = len(full_index) - start_idx
-                else:
-
-                    select_index.append(tmp_index[start_idx:start_idx + batch_size])
-                    start_idx += batch_size
-
-        return select_index
-
-    def decide_fair_batch_size(self):
-        """Calculates each class size based on the lambda values (lb1 and lb2) for fairness.
-
-        Returns:
-            Each class size for fairness.
-
-        """
-
-        each_size = {}
-
-        for tmp_yz in self.yz_tuples:
-            self.S[tmp_yz] = self.batch_size * (self.clean_yz_len[tmp_yz]) / len(self.clean_index)
-
-        # Based on the updated lambdas, determine the size of each class in a batch
-        if self.fairness_constraint == 'eqopp':
-            # lb1 * loss_z1 + (1-lb1) * loss_z0
-
-            each_size[(1, 1)] = round(self.lb1 * (self.S[(1, 1)] + self.S[(1, 0)]))
-            each_size[(1, 0)] = round((1 - self.lb1) * (self.S[(1, 1)] + self.S[(1, 0)]))
-            each_size[(-1, 1)] = round(self.S[(-1, 1)])
-            each_size[(-1, 0)] = round(self.S[(-1, 0)])
-
-        elif self.fairness_constraint == 'eqodds':
-            # lb1 * loss_y1z1 + (1-lb1) * loss_y1z0
-            # lb2 * loss_y0z1 + (1-lb2) * loss_y0z0
-
-            each_size[(1, 1)] = round(self.lb1 * (self.S[(1, 1)] + self.S[(1, 0)]))
-            each_size[(1, 0)] = round((1 - self.lb1) * (self.S[(1, 1)] + self.S[(1, 0)]))
-            each_size[(-1, 1)] = round(self.lb2 * (self.S[(-1, 1)] + self.S[(-1, 0)]))
-            each_size[(-1, 0)] = round((1 - self.lb2) * (self.S[(-1, 1)] + self.S[(-1, 0)]))
-
-        elif self.fairness_constraint == 'dp':
-            # lb1 * loss_y1z1 + (1-lb1) * loss_y1z0
-            # lb2 * loss_y0z1 + (1-lb2) * loss_y0z0
-
-            each_size[(1, 1)] = round(self.lb1 * (self.S[(1, 1)] + self.S[(1, 0)]))
-            each_size[(1, 0)] = round((1 - self.lb1) * (self.S[(1, 1)] + self.S[(1, 0)]))
-            each_size[(-1, 1)] = round(self.lb2 * (self.S[(-1, 1)] + self.S[(-1, 0)]))
-            each_size[(-1, 0)] = round((1 - self.lb2) * (self.S[(-1, 1)] + self.S[(-1, 0)]))
-
-        return each_size
-
     def __iter__(self):
-        """Iters the full process of fair and robust sample selection for serving the batches to training.
+        pass
 
-        Returns:
-            Indexes that indicate the data in each batch.
-
-        """
-        self.current_epoch += 1
-
-        if self.current_epoch > self.warm_start:
-
-            _ = self.select_fair_robust_sample()
-
-            each_size = self.decide_fair_batch_size()
-
-            # Get the indices for each class
-            sort_index_y_1_z_1 = self.select_batch_replacement(each_size[(1, 1)], self.clean_yz_index[(1, 1)],
-                                                               self.batch_num, self.replacement)
-            sort_index_y_0_z_1 = self.select_batch_replacement(each_size[(-1, 1)], self.clean_yz_index[(-1, 1)],
-                                                               self.batch_num, self.replacement)
-            sort_index_y_1_z_0 = self.select_batch_replacement(each_size[(1, 0)], self.clean_yz_index[(1, 0)],
-                                                               self.batch_num, self.replacement)
-            sort_index_y_0_z_0 = self.select_batch_replacement(each_size[(-1, 0)], self.clean_yz_index[(-1, 0)],
-                                                               self.batch_num, self.replacement)
-
-            for i in range(self.batch_num):
-                key_in_fairbatch = sort_index_y_0_z_0[i].copy()
-                key_in_fairbatch = np.hstack((key_in_fairbatch, sort_index_y_1_z_0[i].copy()))
-                key_in_fairbatch = np.hstack((key_in_fairbatch, sort_index_y_0_z_1[i].copy()))
-                key_in_fairbatch = np.hstack((key_in_fairbatch, sort_index_y_1_z_1[i].copy()))
-
-                random.shuffle(key_in_fairbatch)
-
-                yield key_in_fairbatch
-
-        else:
-            entire_index = torch.FloatTensor([i for i in range(len(self.y_data))])
-
-            sort_index = self.select_batch_replacement(self.batch_size, entire_index, self.batch_num, self.replacement)
-
-            for i in range(self.batch_num):
-                yield sort_index[i]
-
-    def __len__(self):
-        """Returns the length of data."""
-
-        return len(self.y_data)

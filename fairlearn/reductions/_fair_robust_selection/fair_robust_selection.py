@@ -28,17 +28,16 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
             predictions returned by  :code:`forward(x)`` are either 0 or 1.
         constraints : fairlearn.reductions.Moment
             The fairness constraints expressed as a :class:`~Moment`.
-        optimizer : torch.optimizer
-             torch optimizer that hold the current state and update
-             the parameters based on the computed gradients.
+        optimizer : torch. optimizer
+             Torch optimizer that hold the current state and update the parameters based on the computed gradients.
         loss_func : torch.nn.module.loss
-            torch loss function
+            Torch loss function
         num_epoch : positive integetr
-            number of times to train on all the data
+            Number of times to train on all the data
         batch_size : positive integetr
-            the size of every batch
+            The size of every batch
         tau: float
-            number in range (0,1] indicating the clean ratio of the data.
+            Number in range (0,1] indicating the clean ratio of the data.
         alpha : float
             A positive number for step size that used in the lambda adjustment.
         sample_weight_name : str
@@ -85,9 +84,9 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
         True
         """
         # turn the data into tensors
-        x_tensor = torch.tensor(x)
-        y_tensor = torch.tensor(y)
-        z_tensor = torch.tensor(z)
+        x_tensor = torch.tensor(x.values)
+        y_tensor = torch.tensor(y.values)
+        z_tensor = torch.tensor(z.values)
 
         # create fair sampler
         sampler = FairBatchSampler(self.estimator, x_tensor, y_tensor, z_tensor, fairness_constraint=self.constraints,
@@ -126,26 +125,25 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
 
 
 if __name__ == "__main__":
-    # import numpy as np
-    # list = np.array([0, 1, 1, 1, 1, 0])
-    # dict = {}
-    # index = {}
-    # values = [0, 1]
-    # for value in values:
-    #     dict[value] = (list == value)
-    #
-    # for value in values:
-    #     index[value] = (list == value).nonzero()
-    # print(index[0])
-
     import doctest
-    from sklearn.linear_model import LogisticRegression
     from fairlearn.datasets import fetch_adult
     from fairlearn.reductions import DemographicParity
+
+    # create logistic regression model
+    class LogisticRegression(torch.nn.Module):
+        def __init__(self, input_dim, output_dim):
+            super(LogisticRegression, self).__init__()
+            self.linear = torch.nn.Linear(input_dim, output_dim)
+
+        def forward(self, x):
+            outputs = torch.sigmoid(self.linear(x))
+            return outputs
 
     adult = fetch_adult(cache=True, as_frame=True)
     x_adult = pd.get_dummies(adult.data)
     y_adult = (adult.target == '>50K') * 1
-    frs_model = FairRobustSelection(LogisticRegression(), DemographicParity(), tau=0.8)
-    frs_model.fit(x_adult, y_adult, adult.data['sex'])
+    sex = adult.data['sex'].apply(lambda x: 0 if x == "Male" else 1)
+    frs_model = FairRobustSelection(LogisticRegression(x_adult.shape[1], 1), DemographicParity())
+    frs_model.fit(x_adult, y_adult, sex)
+
     print(doctest.testmod())
