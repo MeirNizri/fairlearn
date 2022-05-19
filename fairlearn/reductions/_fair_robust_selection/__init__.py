@@ -6,5 +6,5 @@
 from .fair_robust_selection import FairRobustSelection  # noqa: F401
 
 __all__ = [
-    "FairRobustSelection",
+    "FairRobustSelection"
 ]
