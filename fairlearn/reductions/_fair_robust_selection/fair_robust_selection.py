@@ -45,10 +45,6 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
             Name of the argument to `estimator.fit()` which supplies the sample weights
             (defaults to `sample_weight`)
 
-
-        >>> FairRobustSelection(logistic_regression_model, DemographicParity()) is None
-        True
-
         >>> FairRobustSelection(logistic_regression_model,DemographicParity(), tau=0)
         Traceback (most recent call last):
             ...
@@ -122,12 +118,12 @@ class FairRobustSelection(BaseEstimator, MetaEstimatorMixin):
             The prediction. If `x` represents the data for a single example
             the result will be a scalar. Otherwise, the result will be a vector
 
-        >>> frs_model.predict(x_adult).shape[0] is x_adult.shape[0]
+        >>> len(frs_model.predict(x_adult)) == x_adult.shape[0]
         True
         """
-
-        return self.estimator(x).numpy()
-
+        x_tensor = torch.FloatTensor(x.values)
+        pred_y = self.estimator(x_tensor).detach().tolist()
+        return pred_y
 
 if __name__ == "__main__":
     import doctest
@@ -150,6 +146,5 @@ if __name__ == "__main__":
     sex = adult.data['sex'].apply(lambda x: 0 if x == "Male" else 1)
     logistic_regression_model = LogisticRegression(x_adult.shape[1], 1)
     frs_model = FairRobustSelection(logistic_regression_model, DemographicParity())
-    frs_model.fit(x_adult, y_adult, sex)
 
     print(doctest.testmod())
